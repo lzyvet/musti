@@ -1,7 +1,5 @@
 import os
-import zipfile
-import glob
-import subprocess
+import gdown
 import streamlit as st
 from difflib import get_close_matches
 from langchain_community.vectorstores import Chroma
@@ -11,28 +9,23 @@ from langchain.chains.retrieval import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
-# --- 1. OTOMATİK ZIP BİRLEŞTİRME VE ÇIKARMA ---
-if not os.path.exists("./chroma_db"):
-    zip_parts = sorted(glob.glob("./chroma_db.z*"))
-    if zip_parts:
+# --- 1. GOOGLE DRIVE KLAÖSÜRÜNDEN OTOMATİK İNDİRME BLOĞU ---
+DB_DIR = "./chroma_db"
+
+if not os.path.exists(DB_DIR):
+    folder_id = '1dwsWRfvYCQagiguyscykFRi_vxfSkybe'
+    folder_url = f'https://drive.google.com/drive/folders/{folder_id}'
+    
+    with st.spinner("Veritabanı Google Drive klasöründen indiriliyor (Bu işlem yalnızca ilk açılışta yapılır)..."):
         try:
-            # Linux üzerinde 7z kuruluysa doğrudan ilk parçadan çıkartır (BadZipFile hatasını önler)
-            subprocess.run(["7z", "x", zip_parts[0], "-o.", "-y"], check=True)
-        except Exception:
-            # 7z yoksa varsayılan binary birleştirme dener
-            with open("./chroma_db.zip", "wb") as output_file:
-                for part in zip_parts:
-                    with open(part, "rb") as f:
-                        output_file.write(f.read())
-            
-            if os.path.exists("./chroma_db.zip"):
-                with zipfile.ZipFile("./chroma_db.zip", "r") as zip_ref:
-                    zip_ref.extractall(".")
+            # Google Drive klasörünü chroma_db adıyla indirir
+            gdown.download_folder(url=folder_url, output=DB_DIR, quiet=False, remaining_ok=True)
+        except Exception as e:
+            st.error(f"Google Drive klasör indirme hatası: {str(e)}")
 
 # --- 2. STREAMLIT ARAYÜZ VE AYARLAR ---
 st.set_page_config(page_title="Veteriner Tıbbı Yapay Zeka Asistanı", page_icon="🩺", layout="wide")
 
-DB_DIR = "./chroma_db"
 WORDS_FILE = "./pdf_words.txt"
 
 @st.cache_resource
@@ -98,7 +91,7 @@ if prompt := st.chat_input("Soru veya tıbbi terim yazın (Örn: slm, enro, kedi
         else:
             vector_store = load_vector_store()
             if vector_store is None:
-                st.error("⚠️ 'chroma_db' dizini bulunamadı! Lütfen zip dosyalarının yüklendiğinden emin olun.")
+                st.error("⚠️ 'chroma_db' dizini bulunamadı!")
             else:
                 with st.spinner("18 kitaptan araştırılıyor..."):
                     try:
