@@ -1,6 +1,7 @@
 import os
 import zipfile
 import glob
+import subprocess
 import streamlit as st
 from difflib import get_close_matches
 from langchain_community.vectorstores import Chroma
@@ -12,17 +13,21 @@ from langchain_core.prompts import ChatPromptTemplate
 
 # --- 1. OTOMATİK ZIP BİRLEŞTİRME VE ÇIKARMA ---
 if not os.path.exists("./chroma_db"):
-    # .z01, .z02 ... .z08 parçalarını sırasıyla yakalar
     zip_parts = sorted(glob.glob("./chroma_db.z*"))
     if zip_parts:
-        with open("./chroma_db.zip", "wb") as output_file:
-            for part in zip_parts:
-                with open(part, "rb") as f:
-                    output_file.write(f.read())
-        
-        if os.path.exists("./chroma_db.zip"):
-            with zipfile.ZipFile("./chroma_db.zip", "r") as zip_ref:
-                zip_ref.extractall(".")
+        try:
+            # Linux üzerinde 7z kuruluysa doğrudan ilk parçadan çıkartır (BadZipFile hatasını önler)
+            subprocess.run(["7z", "x", zip_parts[0], "-o.", "-y"], check=True)
+        except Exception:
+            # 7z yoksa varsayılan binary birleştirme dener
+            with open("./chroma_db.zip", "wb") as output_file:
+                for part in zip_parts:
+                    with open(part, "rb") as f:
+                        output_file.write(f.read())
+            
+            if os.path.exists("./chroma_db.zip"):
+                with zipfile.ZipFile("./chroma_db.zip", "r") as zip_ref:
+                    zip_ref.extractall(".")
 
 # --- 2. STREAMLIT ARAYÜZ VE AYARLAR ---
 st.set_page_config(page_title="Veteriner Tıbbı Yapay Zeka Asistanı", page_icon="🩺", layout="wide")
@@ -48,7 +53,7 @@ def get_closest_suggestions(query):
         fuzzy_matches = get_close_matches(query_clean, words_list, n=5, cutoff=0.5)
         combined = list(dict.fromkeys(prefix_matches + fuzzy_matches))
         return combined[:5]
-    except:
+    except Exception:
         return []
 
 with st.sidebar:
