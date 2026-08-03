@@ -1,4 +1,6 @@
 import os
+import zipfile
+import glob
 import streamlit as st
 from difflib import get_close_matches
 from langchain_community.vectorstores import Chroma
@@ -8,6 +10,22 @@ from langchain.chains.retrieval import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
+# --- 1. OTOMATİK ZIP BİRLEŞTİRME VE ÇIKARMA (EN BAŞTA OLMALI) ---
+if not os.path.exists("./chroma_db"):
+    zip_parts = sorted(glob.glob("./chroma_db.zip.*"))
+    if zip_parts:
+        # Parçaları tek bir zip dosyasında birleştir
+        with open("./chroma_db.zip", "wb") as output_file:
+            for part in zip_parts:
+                with open(part, "rb") as f:
+                    output_file.write(f.read())
+        
+        # Birleşen zip dosyasını çıkar
+        if os.path.exists("./chroma_db.zip"):
+            with zipfile.ZipFile("./chroma_db.zip", "r") as zip_ref:
+                zip_ref.extractall(".")
+
+# --- 2. STREAMLIT ARAYÜZ VE AYARLAR ---
 st.set_page_config(page_title="Veteriner Tıbbı Yapay Zeka Asistanı", page_icon="🩺", layout="wide")
 
 DB_DIR = "./chroma_db"
@@ -76,7 +94,7 @@ if prompt := st.chat_input("Soru veya tıbbi terim yazın (Örn: slm, enro, kedi
         else:
             vector_store = load_vector_store()
             if vector_store is None:
-                st.error("⚠️ 'chroma_db' dizini bulunamadı!")
+                st.error("⚠️ 'chroma_db' dizini bulunamadı! Lütfen zip dosyalarının yüklendiğinden emin olun.")
             else:
                 with st.spinner("18 kitaptan araştırılıyor..."):
                     try:
