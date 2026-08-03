@@ -8,7 +8,6 @@ from langchain_huggingface import HuggingFaceEmbeddings
 
 app = FastAPI(title="VetHelper AI API")
 
-# Android uygulamasının erişebilmesi için CORS izinleri
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,11 +16,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API Anahtarı Kontrolü
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# Vektör Veritabanı Yükleme
 embeddings = HuggingFaceEmbeddings(
     model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 )
@@ -32,7 +29,6 @@ try:
 except Exception:
     vector_db = None
 
-# Veri Yapıları
 class ChatRequest(BaseModel):
     query: str
 
@@ -42,45 +38,53 @@ class ChatResponse(BaseModel):
 @app.post("/chat", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest):
     if not client:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY sunucuda tanımlı değil.")
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY bulunamadı.")
     
-    user_query = request.query
+    raw_query = request.query.strip()
+    norm_query = raw_query.lower().replace("?", "").replace(".", "")
+    
+    # 1. KISA SORGU / KISALTMA FİLTRESİ (Enro, Doxy, Bayt vb. durumlar için)
+    # Eğer sorgu 4 karakterden kısaysa veya veritabanı alakasız bir terim getiriyorsa RAG'ı bypass et
+    is_short_query = len(norm_query) <= 4
+
     kitap_baglami = ""
-    
-    # RAG - Veritabanı Araması
-    if vector_db:
+    if vector_db and not is_short_query:
         try:
-            docs = vector_db.similarity_search(user_query, k=8)
+            docs = vector_db.similarity_search(raw_query, k=6)
             if docs:
                 kitap_baglami = "\n\n".join([doc.page_content for doc in docs])
         except Exception:
             pass
 
-    # Sistem Talimatı (Etken Madde Öneri Mantığı Dahil)
     sistem_talimati = """
-    [CRITICAL: ANSWER IN TURKISH ONLY.]
-    Sen uzman bir veteriner hekim yardımcı asistanısın.
+    [CRITICAL: ALWAYS ANSWER IN TURKISH ONLY.]
+    Sen uzman bir veteriner hekim asistanısın.
 
-    GÖREVİN VE KURALLARIN:
-    1. Kullanıcının sorusunu ve verilen KAYNAK METİNLERİ dikkatlice incele.
-    2. Eğer kullanıcının sorduğu etken madde, ilaç veya terim tam olarak metinlerde geçmiyorsa veya yazım hatası içeriyorsa KESİNLİKLE "bilmiyorum" deme.
-    3. Metinlerdeki anlam bakımından en yakın 3 etken maddeyi veya ilacı belirle ve kullanıcıya kibarca öneri olarak sun:
-       "Aramak istediğiniz etken madde bulunamadı. Şunlardan birini mi kastettiniz?"
-       - 1. [En Yakın Etken Madde 1]
-       - 2. [En Yakın Etken Madde 2]
-       - 3. [En Yakın Etken Madde 3]
-    4. Sorulan soru net ise klinik ve farmakolojik bilgiyi eksiksiz açıkla.
+    SORGUSAL ÖNERİ KURALI (ÇOK ÖNEMLİ):
+    1. Kullanıcının girdiği terim (Örn: 'enro', 'doxy', 'bay') bir kısaltma veya eksik terim ise, KESİNLİKLE ilgisiz bir konunun (Örn: Enamel, Diş minesi) tanımını yapma!
+    2. Kullanıcı tam ve net bir ilaç/hastalık sormadıysa, veteriner hekimlikte bu kısaltmaya en yakın 5 etken maddeyi/terimi şöyle öner:
+       "Aramak istediğiniz etken madde veya terim tam olarak bulunamadı. Yazım hatası veya kısaltma yapılmış olabilir. Şunlardan birini mi kastettiniz?"
+       - 1. Enrofloksasin (Enrofloxacin)
+       - 2. Enro antibacterial kombinasyonlar
+       - 3. Enterit / Enterik etkenler
+       - 4. Endokrin sistem terimleri
+       - 5. Enamel (Diş Anatomisi)
+    3. Eğer kullanıcı net ve eksiksiz bir klinik terim sorduysa, verilen kaynak metinleri sentezleyerek klinik yanıtı eksiksiz ver.
     """
 
     try:
-        prompt_content = f"KAYNAK METİNLER:\n{kitap_baglami if kitap_baglami else 'Doğrudan metin bulunamadı.'}\n\nSORU:\n{user_query}"
+        if is_short_query:
+            prompt_content = f"Kullanıcı çok kısa/kısaltma bir terim girdi: '{raw_query}'. Lütfen doğrudan yukarıdaki ÖNERİ KURALINI uygulayarak en olası 5 veteriner tıbbi terimini listele."
+        else:
+            prompt_content = f"KAYNAK METİNLER:\n{kitap_baglami if kitap_baglami else 'Doğrudan metin bulunamadı.'}\n\nKULLANICI SORUSU:\n{raw_query}"
+
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": sistem_talimati},
                 {"role": "user", "content": prompt_content}
             ],
-            temperature=0.2,
+            temperature=0.1,
             max_tokens=2048
         )
         cevap = completion.choices[0].message.content
