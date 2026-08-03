@@ -10,17 +10,16 @@ from langchain.chains.retrieval import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
-# --- 1. OTOMATİK ZIP BİRLEŞTİRME VE ÇIKARMA (EN BAŞTA OLMALI) ---
+# --- 1. OTOMATİK ZIP BİRLEŞTİRME VE ÇIKARMA ---
 if not os.path.exists("./chroma_db"):
-    zip_parts = sorted(glob.glob("./chroma_db.zip.*"))
+    # .z01, .z02 ... .z08 parçalarını sırasıyla yakalar
+    zip_parts = sorted(glob.glob("./chroma_db.z*"))
     if zip_parts:
-        # Parçaları tek bir zip dosyasında birleştir
         with open("./chroma_db.zip", "wb") as output_file:
             for part in zip_parts:
                 with open(part, "rb") as f:
                     output_file.write(f.read())
         
-        # Birleşen zip dosyasını çıkar
         if os.path.exists("./chroma_db.zip"):
             with zipfile.ZipFile("./chroma_db.zip", "r") as zip_ref:
                 zip_ref.extractall(".")
