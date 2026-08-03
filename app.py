@@ -9,30 +9,33 @@ from langchain.chains.retrieval import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
-# --- 1. GOOGLE DRIVE KLAÖSÜRÜNDEN OTOMATİK İNDİRME BLOĞU ---
-DB_DIR = "./chroma_db"
-
-if not os.path.exists(DB_DIR):
-    folder_id = '1dwsWRfvYCQagiguyscykFRi_vxfSkybe'
-    folder_url = f'https://drive.google.com/drive/folders/{folder_id}'
-    
-    with st.spinner("Veritabanı Google Drive klasöründen indiriliyor (Bu işlem yalnızca ilk açılışta yapılır)..."):
-        try:
-            # Google Drive klasörünü chroma_db adıyla indirir
-            gdown.download_folder(url=folder_url, output=DB_DIR, quiet=False, remaining_ok=True)
-        except Exception as e:
-            st.error(f"Google Drive klasör indirme hatası: {str(e)}")
-
-# --- 2. STREAMLIT ARAYÜZ VE AYARLAR ---
 st.set_page_config(page_title="Veteriner Tıbbı Yapay Zeka Asistanı", page_icon="🩺", layout="wide")
 
+DB_DIR = "./chroma_db"
 WORDS_FILE = "./pdf_words.txt"
 
+# --- 1. GÜVENLİ VE ÖNBELLEKLİ VERİTABANI YÜKLEME ---
 @st.cache_resource
 def load_vector_store():
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+    # Klasör yoksa veya içi boşsa (sqlite3 dosyası henüz inmemişse) Google Drive'dan indir
+    sqlite_path = os.path.join(DB_DIR, "chroma.sqlite3")
+    
+    if not os.path.exists(sqlite_path):
+        folder_id = '1dwsWRfvYCQagiguyscykFRi_vxfSkybe'
+        folder_url = f'https://drive.google.com/drive/folders/{folder_id}'
+        
+        try:
+            with st.spinner("Veritabanı Google Drive'dan indiriliyor (Bu işlem yalnızca ilk açılışta yapılır)..."):
+                gdown.download_folder(url=folder_url, output=DB_DIR, quiet=False)
+        except Exception as e:
+            st.error(f"❌ Google Drive klasör indirme hatası: {str(e)}")
+            return None
+
+    # İndirme sonrası klasör kontrolü
     if os.path.exists(DB_DIR):
+        embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
         return Chroma(persist_directory=DB_DIR, embedding_function=embeddings)
+    
     return None
 
 def get_closest_suggestions(query):
@@ -49,6 +52,7 @@ def get_closest_suggestions(query):
     except Exception:
         return []
 
+# --- 2. STREAMLIT ARAYÜZÜ ---
 with st.sidebar:
     st.title("🩺 Veteriner Tıbbı Asistanı")
     st.success("✅ **18 Akademik Kitap Yüklü ve Aktif**")
@@ -91,7 +95,7 @@ if prompt := st.chat_input("Soru veya tıbbi terim yazın (Örn: slm, enro, kedi
         else:
             vector_store = load_vector_store()
             if vector_store is None:
-                st.error("⚠️ 'chroma_db' dizini bulunamadı!")
+                st.error("⚠️ 'chroma_db' veritabanı yüklenemedi! Lütfen indirme bağlantısını ve logları kontrol edin.")
             else:
                 with st.spinner("18 kitaptan araştırılıyor..."):
                     try:
