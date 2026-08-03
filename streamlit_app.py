@@ -38,8 +38,8 @@ else:
             if doc_count == 0:
                 st.sidebar.warning("⚠️ Veritabanı boş! PDF'ler yükleniyor...")
                 
-                # 📂 PDF'lerin bulunduğu klasör (kendi klasörünüzü belirtin)
-                pdf_klasoru = "pdf_kitap"  # Bu klasöre PDF'leri koyun
+                # 📂 PDF'lerin bulunduğu klasör
+                pdf_klasoru = "pdf_kitap"
                 
                 if os.path.exists(pdf_klasoru):
                     all_docs = []
@@ -150,32 +150,46 @@ else:
             kitap_baglami = ""
             if st.session_state.vector_db:
                 try:
-                    docs = st.session_state.vector_db.similarity_search(user_query, k=6)
+                    docs = st.session_state.vector_db.similarity_search(user_query, k=8)
                     if docs:
                         kitap_baglami = "\n\n".join([doc.page_content for doc in docs])
                         st.sidebar.info(f"🔍 {len(docs)} doküman bulundu")
                     else:
-                        st.sidebar.warning("⚠️ Hiç doküman bulunamadı!")
+                        st.sidebar.warning("⚠️ Doğrudan eşleşen doküman bulunamadı!")
                 except Exception as e:
                     st.error(f"Arama hatası: {e}")
 
-            if kitap_baglami:
-                sistem_talimati = """
-                [CRITICAL: ANSWER IN TURKISH ONLY.]
-                Sana verilen İngilizce kaynak metinleri oku, klinik bilgileri doğru şekilde sentezleyerek Türkçe cevap ver.
-                Verilen metinlerde aranan bilgi yoksa kesinlikle dışarıdan bilgi uydurma ve 'Bu bilgi kütüphanede yüklü olan kitaplarda bulunmamaktadır.' de.
-                """
+            # --- DEĞİŞTİRİLEN VE DÜZELTİLEN PROMPT BÖLÜMÜ ---
+            sistem_talimati = """
+            [CRITICAL: ANSWER IN TURKISH ONLY.]
+            Sen uzman bir veteriner hekim yardımcı asistanısın.
+
+            GÖREVİN VE ÖNERİ KURALLARIN:
+            1. Kullanıcının sorduğu soru veya terim (Örn: 'enro') tam olarak net değilse, kısaltmaysa, harf hatası barındırıyorsa veya aranan metinlerle %100 örtüşmüyorsa KESİNLİKLE ilgisiz bir konuya (Örn: Enamel/Diş) atlayıp onun tanımını yapma ve doğrudan "bilmiyorum/kütüphanede yok" deme.
+            2. Bunun yerine, kullanıcının yazmak istediği en olası 5 veteriner etken maddesini, ilacını veya tıbbi terimini analiz et ve şu şekilde öneri sun:
+               "Aramak istediğiniz terim veya etken madde tam olarak bulunamadı. Yazım hatası veya kısaltma yapılmış olabilir. Şunlardan birini mi kastettiniz?"
+               - 1. [En Olası Etken Madde 1 (Örn: Enrofloksasin)]
+               - 2. [En Olası Etken Madde 2]
+               - 3. [En Olası Etken Madde 3]
+               - 4. [En Olası Etken Madde 4]
+               - 5. [En Olası Etken Madde 5]
+            3. Eğer kullanıcı net ve eksiksiz bir klinik soru veya etken madde sorduysa, verilen KAYNAK METİNLERİ sentezleyerek doğru ve eksiksiz Türkçe bilgi ver.
+            """
+
+            try:
+                prompt_input = f"KAYNAK METİNLER:\n{kitap_baglami if kitap_baglami else 'Doğrudan metin eşleşmesi sağlanamadı.'}\n\nKULLANICI SORUSU/TERİMİ:\n{user_query}"
+                
                 completion = client.chat.completions.create(
                     model="llama-3.3-70b-versatile",
                     messages=[
                         {"role": "system", "content": sistem_talimati},
-                        {"role": "user", "content": f"KAYNAK METİNLER:\n{kitap_baglami}\n\nSORU:\n{user_query}"}
+                        {"role": "user", "content": prompt_input}
                     ],
-                    temperature=0.0
+                    temperature=0.2
                 )
                 cevap = completion.choices[0].message.content
-            else:
-                cevap = "❌ Bu bilgi kütüphanede yüklü olan kitaplarda bulunmamaktadır."
+            except Exception as e:
+                cevap = f"❌ Bir hata oluştu: {str(e)}"
 
         with st.chat_message("assistant", avatar="🤖"):
             st.markdown(cevap)
